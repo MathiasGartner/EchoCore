@@ -17,7 +17,7 @@ void selectSensor(uint8_t i) {
 }
 
 void stopDeflateBubble(byte id) {
-  Serial.print("stop defalate ");
+  Serial.print("stop deflate ");
   Serial.println(id);
   digitalWrite(PIN_VALVE[id], LOW);
   bubbleState[id] = BUBBLE_EMPTY;
@@ -77,4 +77,15 @@ void setInflate(byte id, float val) {
   Serial.print(bubbleFillUntil[id]);
   Serial.print(" / ");
   Serial.println(bubbleStateTimestamp[id]);
+}
+
+void readSensors() {  
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    selectSensor(CHNL_SENSOR[i]);
+    unsigned long val = particleSensors[i].getIR();
+    float valAdjusted = (float(val) - sensorIdleValue[i]) / SENSOR_MAX_VAL;
+    if (valAdjusted < 0.0) valAdjusted = 0.0;
+    if (valAdjusted > 1.0) valAdjusted = 1.0;
+    sensorValue[i] = valAdjusted;
+  }
 }

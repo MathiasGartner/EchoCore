@@ -11,7 +11,8 @@ const byte NUM_BEATS = 3;
 const byte BUF_SIZE = 32;
 unsigned int T_SEND_MS = 4000;
 unsigned int T_RECV_MS = 500;
-unsigned int T_READ_SENSOR_MS = 3000;
+unsigned int T_READ_SENSOR_MS = 100;
+unsigned int T_REACT_TO_SENSOR_MS = 100;
 unsigned int T_WAIT_MS = 350;
 unsigned int T_DEFLATE_SAFETY_MS = 10 * 1000;
 unsigned int T_DEFLATE_DONE_MS = 3 * 1000;
@@ -46,6 +47,11 @@ const byte PIN_VALVE[NUM_BUBBLES] = { PIN_VALVE_1, PIN_VALVE_2, PIN_VALVE_3, PIN
 
 const byte CHNL_SENSOR[NUM_SENSORS] = { CHNL_SENSOR_1, CHNL_SENSOR_2 };
 MAX30105 particleSensors[NUM_SENSORS];
+
+const byte N_SENSOR_IDLE_AVG = 32;
+const unsigned long SENSOR_MAX_VAL = 30000;
+unsigned long sensorIdleValue[NUM_SENSORS] = { 0, 0 };;
+float sensorValue[NUM_SENSORS] = { 0.0, 0.0 };
 
 CRGB leds[NUM_LEDS];
 
@@ -130,7 +136,7 @@ void setup() {
   PrintLineSeperator(1);
   
   PrintLineSeperator(1);
-  Serial.print("Initialize LEDs...");
+  Serial.println("Initialize LEDs...");
   FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS); 
 
   for (int n = 0; n < 3; n++) {
@@ -148,14 +154,14 @@ void setup() {
   Serial.println("done");
 
   PrintLineSeperator(1);
-  Serial.print("Initialize radio...");
+  Serial.println("Initialize radio...");
   radio.begin();
   radio.openReadingPipe(1, BEAT_ADDRESS[BEAT_ID]);  
   radio.startListening();
   Serial.println("done");
 
   PrintLineSeperator(1);
-  Serial.print("Initialize sensors...");
+  Serial.println("Initialize sensors...");
   Wire.begin();
   for (int i = 0; i < NUM_SENSORS; i++) {
     selectSensor(CHNL_SENSOR[i]);
@@ -166,11 +172,21 @@ void setup() {
       continue;
     }
     particleSensors[i].setup();
+    particleSensors[i].setPulseAmplitudeRed(0);
+    particleSensors[i].setPulseAmplitudeGreen(0);
+    for (byte v = 0; v < N_SENSOR_IDLE_AVG; v++) {
+      sensorIdleValue[i] += particleSensors[i].getIR();
+    }
+    sensorIdleValue[i] /= N_SENSOR_IDLE_AVG;
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(" idle value is ");
+    Serial.println(sensorIdleValue[i]);
   }
   Serial.println("done");
 
   PrintLineSeperator();
-  Serial.print("Initialize pumps and valves...");
+  Serial.println("Initialize pumps and valves...");
   for (int i = 0; i < NUM_BUBBLES; i++) {
     pinMode(PIN_PUMP[i], OUTPUT);
     digitalWrite(PIN_PUMP[i], LOW);
@@ -190,13 +206,19 @@ void setup() {
 void loop() {
   byte RUN_ECHOCORE = 0;
   byte RUN_FILL_TEST = 1;
+  byte RUN_SENSOR_TEST = 2;
 
-  byte runMode = RUN_FILL_TEST;
+  byte runMode = RUN_ECHOCORE;
+  //byte runMode = RUN_FILL_TEST;
+  //byte runMode = RUN_SENSOR_TEST;
   if (runMode == RUN_ECHOCORE) {
     run();
   }
   else if (runMode == RUN_FILL_TEST) {
     testFill();
+  }
+  else if (runMode == RUN_SENSOR_TEST) {
+    testSensor();
   }
 }
 
@@ -235,6 +257,22 @@ void run() {
     prevMillisRecv = millis();
   }
 
+  //do pump action
+  for (int i = 0; i < NUM_BUBBLES; i++) {
+    if (bubbleState[i] == BUBBLE_FILLING) {
+      if (currentMillis < bubbleFillUntil[i]) {
+        digitalWrite(PIN_PUMP[i], HIGH);
+      }
+      else{
+        digitalWrite(PIN_PUMP[i], LOW);
+        bubbleState[i] = BUBBLE_WAIT;
+        bubbleStateTimestamp[i] = millis();
+        Serial.print("stop ");
+        Serial.println(i);
+      }
+    }
+  }
+
   //check if deflate has finished
   for (int i = 0; i < NUM_BUBBLES; i++) {
     if (bubbleState[i] == BUBBLE_DEFLATING) {
@@ -250,12 +288,19 @@ void run() {
     prevMillisDeflateSafety = millis();
   }
 
-  /*
+  //read sensor values
   if (currentMillis - prevMillisSensor >= T_READ_SENSOR_MS) {
-    testPump();
+    readSensors();
+    //for (int i = 0; i < NUM_SENSORS; i++) {
+    //  Serial.print(sensorValue[i]);
+    //  Serial.print("/");
+    //}
+    //Serial.println();
     prevMillisSensor = millis();
   }
-  */
+
+  //fill if sensor detected
+
 
   delay(T_WAIT_MS);
 }
@@ -294,7 +339,7 @@ void testFill() {
     }
   }
 
-  //safety deflate
+  //check if deflate should be performed (for safety)
   if (currentMillis - prevMillisDeflateSafety >= 50000) {
     deflateAll();
     prevMillisDeflateSafety = millis();
@@ -307,6 +352,23 @@ void testFill() {
         stopDeflateBubble(i);
       }
     }
+  }
+
+  delay(350);
+}
+
+void testSensor() {
+  currentMillis = millis();
+  
+  //read sensor values
+  if (currentMillis - prevMillisSensor >= T_READ_SENSOR_MS) {
+    readSensors();
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      Serial.print(sensorValue[i]);
+      Serial.print("/");
+    }
+    Serial.println();
+    prevMillisSensor = millis();
   }
 
   delay(350);

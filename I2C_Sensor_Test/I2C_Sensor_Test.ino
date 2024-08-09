@@ -46,6 +46,8 @@ void setup() {
         continue;
       }
       particleSensors[i].setup();
+      particleSensors[i].setPulseAmplitudeRed(0);
+      particleSensors[i].setPulseAmplitudeGreen(0);
       Serial.println("setup done");
     }
   }
