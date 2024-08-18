@@ -46,8 +46,8 @@ void setup() {
         continue;
       }
       particleSensors[i].setup();
-      particleSensors[i].setPulseAmplitudeRed(0);
-      particleSensors[i].setPulseAmplitudeGreen(0);
+      particleSensors[i].setPulseAmplitudeRed(255);
+      particleSensors[i].setPulseAmplitudeGreen(255);
       Serial.println("setup done");
     }
   }
@@ -62,12 +62,11 @@ void loop() {
     Serial.print(": ");
     Serial.print(" R[");
     Serial.print(particleSensors[i].getRed());
-    Serial.print("] IR[");
+    Serial.print("] \t IR[");
     Serial.print(particleSensors[i].getIR());
-    Serial.print("] G[");
+    Serial.print("] \t G[");
     Serial.print(particleSensors[i].getGreen());
-    Serial.print("]");
-    Serial.println();
+    Serial.print("] \t ");
   }
   Serial.println();
   delay(500);
