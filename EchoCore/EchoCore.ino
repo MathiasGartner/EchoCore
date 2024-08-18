@@ -1,3 +1,10 @@
+/*
+Libraries
+https://github.com/FastLED/FastLED
+https://github.com/sparkfun/SparkFun_MAX3010x_Sensor_Library
+https://nrf24.github.io/RF24/
+*/
+
 #include <EEPROM.h>
 #include <FastLED.h>
 #include <RF24.h>
@@ -16,6 +23,7 @@ unsigned int T_REACT_TO_SENSOR_MS = 100;
 unsigned int T_WAIT_MS = 350;
 unsigned int T_DEFLATE_SAFETY_MS = 10 * 1000;
 unsigned int T_DEFLATE_DONE_MS = 3 * 1000;
+unsigned int T_LED_UPDATE_MS = 30;
 
 #define PIN_CE 7
 #define PIN_CSN 8
@@ -25,18 +33,20 @@ const byte BEAT_ADDRESS[NUM_BEATS][5] = { "BEAT1", "BEAT2", "BEAT3" };
 #define TCA_ADDR 0x70
 #define SENSOR_ADDR 0x57
 
-#define NUM_LEDS 5
+#define NUM_LEDS 79
 #define PIN_LED_DATA 9
+#define LED_BRIGHTNESS 128
+#define LED_DEFAULT_RGB CRGB::Red
 
 #define NUM_BUBBLES 4
-#define PIN_PUMP_1 A4
-#define PIN_PUMP_2 A5
+#define PIN_PUMP_1 A2
+#define PIN_PUMP_2 A3
 #define PIN_PUMP_3 2
 #define PIN_PUMP_4 3
-#define PIN_VALVE_1 4
-#define PIN_VALVE_2 5
-#define PIN_VALVE_3 6
-#define PIN_VALVE_4 10
+#define PIN_VALVE_1 6
+#define PIN_VALVE_2 10
+#define PIN_VALVE_3 4
+#define PIN_VALVE_4 5
 
 const byte PIN_PUMP[NUM_BUBBLES] = { PIN_PUMP_1, PIN_PUMP_2, PIN_PUMP_3, PIN_PUMP_4 };
 const byte PIN_VALVE[NUM_BUBBLES] = { PIN_VALVE_1, PIN_VALVE_2, PIN_VALVE_3, PIN_VALVE_4 };
@@ -62,6 +72,7 @@ unsigned long prevMillisSend = 0;
 unsigned long prevMillisRecv = 0;
 unsigned long prevMillisSensor = 0;
 unsigned long prevMillisDeflateSafety = 0;
+unsigned long prevMillisLED = 0;
 
 int currentData = 0;
 char dataToSend[BUF_SIZE] = "";
@@ -78,10 +89,10 @@ byte bubbleState[NUM_BUBBLES] = { BUBBLE_EMPTY, BUBBLE_EMPTY, BUBBLE_EMPTY, BUBB
 unsigned long bubbleStateTimestamp[NUM_BUBBLES] = { 0, 0, 0, 0 };
 unsigned long bubbleFillUntil[NUM_BUBBLES] = { 0, 0, 0, 0 };
 
-const int bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
-    { 3000, 3000, 1000, 1000 },
-    { 30000, 3000, 1000, 1000 },
-    { 3000, 3000, 1000, 1000 }
+const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
+    { 1000, 1000, 1000, 1000 },
+    { 6000, 6000, 3000, 3000 }, //2.6V
+    { 1000, 1000, 1000, 1000 }
   };
 
 int getPulseData() {
@@ -124,7 +135,6 @@ void testPump() {
 }
 */
 
-
 void setup() {
   Serial.begin(115200);
   Serial.println("\n");
@@ -133,11 +143,12 @@ void setup() {
   PrintLineSeperator(2);
   Serial.print("This is BEAT ID: ");
   Serial.println(BEAT_ID);
-  PrintLineSeperator(1);
+  PrintLineSeperator();
   
-  PrintLineSeperator(1);
+  PrintLineSeperator();
   Serial.println("Initialize LEDs...");
   FastLED.addLeds<NEOPIXEL, PIN_LED_DATA>(leds, NUM_LEDS); 
+  FastLED.setBrightness(LED_BRIGHTNESS);
 
   for (int n = 0; n < 3; n++) {
     for (int i = 0; i < NUM_LEDS; i++) {
@@ -153,14 +164,14 @@ void setup() {
   }
   Serial.println("done");
 
-  PrintLineSeperator(1);
+  PrintLineSeperator();
   Serial.println("Initialize radio...");
   radio.begin();
   radio.openReadingPipe(1, BEAT_ADDRESS[BEAT_ID]);  
   radio.startListening();
   Serial.println("done");
 
-  PrintLineSeperator(1);
+  PrintLineSeperator();
   Serial.println("Initialize sensors...");
   Wire.begin();
   for (int i = 0; i < NUM_SENSORS; i++) {
@@ -194,31 +205,41 @@ void setup() {
     digitalWrite(PIN_VALVE[i], LOW);
   }
   deflateAll();
-  delay(T_DEFLATE_DONE_MS);  
+  delay(T_DEFLATE_DONE_MS);
   for (int i = 0; i < NUM_BUBBLES; i++) {
-    bubbleState[i] = BUBBLE_EMPTY;
+    stopDeflateBubble(i);
   }
   Serial.println("done");
   PrintLineSeperator();
+  PrintLineSeperator();
+  Serial.println("Initialization done!");
+  PrintLineSeperator();
   Serial.println("");
+  delay(1000);
 }
 
 void loop() {
   byte RUN_ECHOCORE = 0;
   byte RUN_FILL_TEST = 1;
   byte RUN_SENSOR_TEST = 2;
+  byte RUN_LED_TEST = 3;
 
-  byte runMode = RUN_ECHOCORE;
+  //byte runMode = RUN_ECHOCORE;
   //byte runMode = RUN_FILL_TEST;
   //byte runMode = RUN_SENSOR_TEST;
+  byte runMode = RUN_LED_TEST;
   if (runMode == RUN_ECHOCORE) {
     run();
   }
   else if (runMode == RUN_FILL_TEST) {
-    testFill();
+    //testFill();
+    testFill2();
   }
   else if (runMode == RUN_SENSOR_TEST) {
     testSensor();
+  }
+  else if (runMode == RUN_LED_TEST) {
+    testLED();
   }
 }
 
@@ -309,11 +330,29 @@ byte testFill_bubbleId = 0;
 float testFill_val = 0.1;
 unsigned long testFill_prevMillisLastAction = 0;
 
+void testFill2() {
+  for (int i = 0; i < NUM_BUBBLES; i++) {
+    Serial.print("inflate bubble: ");
+    Serial.println(i);
+    digitalWrite(PIN_PUMP[i], HIGH);
+    delay(bubbleFillTime[BEAT_ID][i]);
+    digitalWrite(PIN_PUMP[i], LOW);
+    Serial.print("deflate...");
+    deflateBubble(i);
+    delay(T_DEFLATE_DONE_MS);
+    stopDeflateBubble(i);
+    Serial.println("done");
+  }
+  Serial.println("all done");
+  delay(1000);
+}
+
 void testFill() {
   currentMillis = millis();
   
   //set fill goal
-  if (currentMillis - testFill_prevMillisLastAction >= 3000) {
+  if (currentMillis - testFill_prevMillisLastAction >= 20000) {
+    testFill_val = 1.0;
     setInflate(testFill_bubbleId, testFill_val);
     testFill_bubbleId = (testFill_bubbleId + 1) % NUM_BUBBLES;
     testFill_val += 0.1;
@@ -340,9 +379,9 @@ void testFill() {
   }
 
   //check if deflate should be performed (for safety)
-  if (currentMillis - prevMillisDeflateSafety >= 50000) {
+  if (currentMillis - prevMillisDeflateSafety >= 20000) {
     deflateAll();
-    prevMillisDeflateSafety = millis();
+    prevMillisDeflateSafety = millis() - 10000;
   }
 
   //check if deflate has finished
@@ -373,3 +412,60 @@ void testSensor() {
 
   delay(350);
 }
+
+bool inLEDTransition = false;
+CRGB colorStart = LED_DEFAULT_RGB;
+CRGB colorEnd = LED_DEFAULT_RGB;
+CRGB colorCurrent = LED_DEFAULT_RGB;
+unsigned long ledTransitionEnd = 0;
+unsigned long ledTransitionStart = 0;
+unsigned long ledTransitionDuration = 0;
+
+void fadeLEDs(const CRGB& start, const CRGB& end, float f) {
+  CRGB cur;
+  cur.r = int(start.r + (end.r - start.r) * f);
+  cur.g = int(start.g + (end.g - start.g) * f);
+  cur.b = int(start.b + (end.b - start.b) * f);
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = cur;
+  }  
+  colorCurrent = cur;
+  FastLED.show();
+}
+
+void startFadeLEDs(const CRGB& end, unsigned long duration) {
+  colorStart = colorCurrent;
+  colorEnd = end;
+  inLEDTransition = true;
+  ledTransitionStart = millis();
+  ledTransitionEnd = ledTransitionStart + duration;
+  ledTransitionDuration = duration;
+}
+
+void testLED() {
+  currentMillis = millis();
+  
+  if (!inLEDTransition) {
+    startFadeLEDs(CRGB(random8(), random8(), random8()), 3000);
+  }
+
+  //update LED colors
+  if (currentMillis - prevMillisLED >= T_LED_UPDATE_MS) {
+    if (currentMillis > ledTransitionEnd) {
+      inLEDTransition = false;
+    }
+    if (inLEDTransition && ledTransitionDuration > 0) {
+      float f = float(currentMillis - ledTransitionStart) / ledTransitionDuration;
+      fadeLEDs(colorStart, colorEnd, f);
+      Serial.print(leds[0].r);
+      Serial.print("\t");
+      Serial.print(leds[0].g);
+      Serial.print("\t");
+      Serial.print(leds[0].b);
+      Serial.print("\t");
+      Serial.println(f);
+    }
+    prevMillisLED = millis();
+  }
+}
+

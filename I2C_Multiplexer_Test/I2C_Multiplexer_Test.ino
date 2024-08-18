@@ -16,20 +16,27 @@ const int CHNL_SENSOR[NUM_SENSORS] = { CHNL_SENSOR_1, CHNL_SENSOR_2 };
 void tcaselect(uint8_t i) {
   if (i > 7) return;
  
+    Serial.println("beginTransmission");
   Wire.beginTransmission(TCA_ADDR);
+    Serial.println("write");
   Wire.write(1 << i);
+    Serial.println("endTransmission");
   Wire.endTransmission();  
+    Serial.println("done");
 }
 
 void setup() {
   Serial.begin(115200);
   Serial.println("\n");
+  delay(500);
 
   Wire.begin();
 
   Serial.println("check for sensors:");
 
   for (int i = 0; i < NUM_SENSORS; i++) {
+    Serial.print("select port: ");
+    Serial.println(i);
     tcaselect(CHNL_SENSOR[i]);
     Serial.print("TCA Port #");
     Serial.println(i);
@@ -38,7 +45,11 @@ void setup() {
       Serial.print("Found I2C 0x");
       Serial.println(SENSOR_ADDR, HEX);
     }
+    else {
+      Serial.println("nothing found");
+    }
   }
+  Serial.println("done");
 }
 
 void loop() {

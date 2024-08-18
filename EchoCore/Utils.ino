@@ -79,7 +79,7 @@ void setInflate(byte id, float val) {
   Serial.println(bubbleStateTimestamp[id]);
 }
 
-void readSensors() {  
+void readSensors() {
   for (int i = 0; i < NUM_SENSORS; i++) {
     selectSensor(CHNL_SENSOR[i]);
     unsigned long val = particleSensors[i].getIR();
