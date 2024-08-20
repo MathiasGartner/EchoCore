@@ -106,9 +106,11 @@ const byte sensorBubbleMapping[NUM_SENSORS][2] = {
 
 
 const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
-    { 1000, 1000, 1000, 1000 },
+    //{ 1000, 1000, 1000, 1000 },
+    { 6000, 6000, 6000, 6000 }, 
     { 6000, 6000, 6000, 6000 }, //2.6V
-    { 1000, 1000, 1000, 1000 }
+    //{ 1000, 1000, 1000, 1000 }
+    { 6000, 6000, 6000, 6000 }
   };
 
 bool inLEDTransition = false;
