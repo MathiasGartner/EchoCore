@@ -2,7 +2,7 @@
 
 void setup() {
   //The ID to store on the Arduino EEPROM
-  byte BEAT_ID = 1;
+  byte BEAT_ID = 0;
 
   Serial.begin(115200);
   EEPROM.write(0, BEAT_ID);

@@ -22,6 +22,8 @@ unsigned int T_RECV_MS = 500;
 unsigned int T_READ_SENSOR_MS = 100;
 unsigned int T_FILL_ON_SENSOR_DATA_MS = 100;
 
+unsigned int T_REACT_AFTER_LAST_USER_MS = 2000;
+
 unsigned int T_WAIT_MS = 20;
 
 unsigned int T_PUMP_UPDATE_MS = 50;
@@ -39,20 +41,20 @@ const byte BEAT_ADDRESS[NUM_BEATS][5] = { "BEAT1", "BEAT2", "BEAT3" };
 #define TCA_ADDR 0x70
 #define SENSOR_ADDR 0x57
 
-#define NUM_LEDS 79
+#define NUM_LEDS 32
 #define PIN_LED_DATA 9
-#define LED_BRIGHTNESS 128
+#define LED_BRIGHTNESS 100
 #define LED_DEFAULT_RGB CRGB::Blue
 
 #define NUM_BUBBLES 4
 #define PIN_PUMP_1 A2
-#define PIN_PUMP_2 A3
+#define PIN_PUMP_2 3
 #define PIN_PUMP_3 2
-#define PIN_PUMP_4 3
-#define PIN_VALVE_1 6
+#define PIN_PUMP_4 A3
+#define PIN_VALVE_1 4
 #define PIN_VALVE_2 10
-#define PIN_VALVE_3 4
 #define PIN_VALVE_4 5
+#define PIN_VALVE_3 6
 
 const byte PIN_PUMP[NUM_BUBBLES] = { PIN_PUMP_1, PIN_PUMP_2, PIN_PUMP_3, PIN_PUMP_4 };
 const byte PIN_VALVE[NUM_BUBBLES] = { PIN_VALVE_1, PIN_VALVE_2, PIN_VALVE_3, PIN_VALVE_4 };
@@ -88,6 +90,8 @@ char dataToSend[BUF_SIZE] = "";
 char dataReceived[BUF_SIZE] = "";
 bool newDataAvailable = false;
 
+unsigned long lastUserActionTimestamp = 0;
+
 byte BUBBLE_EMPTY = 0;
 byte BUBBLE_DEFLATING = 1;
 byte BUBBLE_FILLING = 2;
@@ -100,17 +104,20 @@ unsigned long bubbleStateTimestamp[NUM_BUBBLES] = { 0, 0, 0, 0 };
 unsigned long bubbleFillUntil[NUM_BUBBLES] = { 0, 0, 0, 0 };
 
 const byte sensorBubbleMapping[NUM_SENSORS][2] = {
-    { 0, 2 },
-    { 1, 3 }
+    { 2, 3 },
+    { 0, 1 }
   };
 
 
 const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
-    //{ 1000, 1000, 1000, 1000 },
-    { 6000, 6000, 6000, 6000 }, 
-    { 6000, 6000, 6000, 6000 }, //2.6V
+    //{ 2500, 1000, 4000, 4000 },
+    { 4000, 4000, 2500, 1500 },
+    { 3000, 3000, 3000, 3000 },
+    { 3000, 3000, 3000, 3000 }
+    //{ 6000, 6000, 6000, 6000 }, 
+    //{ 6000, 6000, 6000, 6000 },
     //{ 1000, 1000, 1000, 1000 }
-    { 6000, 6000, 6000, 6000 }
+    //{ 3000, 3000, 3000, 3000 }
   };
 
 bool inLEDTransition = false;
@@ -198,16 +205,29 @@ void setup() {
   }
   deflateAll();
   delay(T_DEFLATE_DONE_MS);
+  //delay(1000);
   for (int i = 0; i < NUM_BUBBLES; i++) {
+    //deflateBubble(i);
+    //delay(T_DEFLATE_DONE_MS);
     stopDeflateBubble(i);
+    //delay(1000);
   }
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    leds[i] = CRGB::Green;
+  }
+  FastLED.show();
+  delay(1000);
+  for (byte i = 0; i < NUM_LEDS; i++) {
+    leds[i] = LED_DEFAULT_RGB;
+  }
+  FastLED.show();
   Serial.println("done");
-  PrintLineSeperator();
-  PrintLineSeperator();
+  PrintLineSeperator(2);
   Serial.println("Initialization done!");
   PrintLineSeperator();
   Serial.println("");
-  delay(1000);
+  delay(100);
 }
 
 void loop() {
@@ -240,35 +260,34 @@ void run() {
 
   // send activity to other devices
   if (currentMillis - prevMillisSend >= T_SEND_MS && false) {
-    int data = getPulseData();
-    String msg = "pulse: ";
-    msg = msg + data;
-    msg.toCharArray(dataToSend, BUF_SIZE);
-
-    Serial.print("send: ");
-    Serial.println(msg);
-
-    radio.stopListening();
-    for (byte i = 0; i < NUM_BEATS; i++) {
-      if (i != BEAT_ID) {
-        radio.openWritingPipe(BEAT_ADDRESS[i]);
-        
-        radio.write(&dataToSend, BUF_SIZE);
-
-        Serial.print("sent to slave: ");
-        Serial.println(i);
+    for (int i = 0; i < NUM_SENSORS; i++) {
+      if (sensorValue[i] > 0.0) {
+        for (byte b = 0; b < 2; b++) {
+          byte bubbleId = sensorBubbleMapping[i][b];
+          String msg = "" + bubbleId + (byte)sensorValue[i]*10;
+          Serial.print("send: ");
+          Serial.println(dataToSend);
+          msg.toCharArray(dataToSend, BUF_SIZE);
+          sendAction();
+        }
       }
-    }
-    radio.startListening();
-    
-    PrintLineSeperator();
+    }    
     prevMillisSend = millis();
   }
 
   // receive activity from other devices
-  if (currentMillis - prevMillisRecv >= T_RECV_MS) {
+  if (currentMillis - prevMillisRecv >= T_RECV_MS && false) {
     recvData();
-    showData();
+    if (newDataAvailable) {
+      showData();
+      if (currentMillis - lastUserActionTimestamp > T_REACT_AFTER_LAST_USER_MS) {
+        byte bubbleId = (byte)dataReceived[0];
+        float fillLevel = (float)dataReceived[1] / 10.0;
+        setInflate(bubbleId, fillLevel);
+        setNewColor(bubbleFillUntil[bubbleId] - millis());
+      }
+      newDataAvailable = false;
+    }
     prevMillisRecv = millis();
   }
 
@@ -286,8 +305,8 @@ void run() {
           bubbleFillLevelCurrent[i] = bubbleFillLevelGoal[i];
           bubbleState[i] = BUBBLE_WAIT;
           bubbleStateTimestamp[i] = millis();
-          Serial.print("stop fill bubble no: ");
-          Serial.println(i);
+          PrintBubbleId(i);
+          Serial.println("stop fill");
         }
       }
     }
@@ -322,11 +341,12 @@ void run() {
   if (currentMillis - prevMillisFillOnSensorData >= T_FILL_ON_SENSOR_DATA_MS) {    
     for (int i = 0; i < NUM_SENSORS; i++) {
       if (sensorValue[i] > 0.0) {
+        lastUserActionTimestamp = currentMillis;
         for (byte b = 0; b < 2; b++) {
           byte bubbleId = sensorBubbleMapping[i][b];
           if (bubbleFillLevelGoal[bubbleId] < sensorValue[i]) {
             setInflate(bubbleId, sensorValue[i]);
-            setNewColor();
+            setNewColor(bubbleFillUntil[bubbleId] - millis());
           }
           else if (bubbleState[bubbleId] == BUBBLE_WAIT &&
                    bubbleFillLevelCurrent[bubbleId] == 1.0 && 

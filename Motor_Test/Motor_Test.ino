@@ -27,31 +27,34 @@ void setup() {
 }
 
 bool pump = false;
-bool high = false;
+bool high = true;
 
 void loop() {
+  int k = 2;
+  //for (int i = k; i <= k; i++) {
   for (int i = 0; i < NUM_BUBBLES; i++) {
+    Serial.print(i);
     if (pump) {
       if (high) {
-        Serial.println("pump on");
+        Serial.println(" pump on");
         digitalWrite(PIN_PUMP[i], HIGH);
       }
       else {
-        Serial.println("pump off");
+        Serial.println(" pump off");
         digitalWrite(PIN_PUMP[i], LOW);
       }
     }
     else {
       if (high) {
-        Serial.println("valve on");
+        Serial.println(" valve on");
         digitalWrite(PIN_VALVE[i], HIGH);
       }
       else {
-        Serial.println("valve off");
+        Serial.println(" valve off");
         digitalWrite(PIN_VALVE[i], LOW);        
       }
     }
-    delay(500);
+    delay(1000);
   }
   pump = !pump;
   if (!pump)

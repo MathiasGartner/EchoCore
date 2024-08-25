@@ -11,6 +11,12 @@ void PrintLineSeperator() {
   PrintLineSeperator(1);
 }
 
+void PrintBubbleId(int id) {
+  Serial.print("#");
+  Serial.print(id);
+  Serial.print(": ");
+}
+
 ///////////////////////
 ///  COMMUNICATION  ///
 ///////////////////////
@@ -23,13 +29,25 @@ void recvData() {
 }
 
 void showData() {
-  if (newDataAvailable == true) {
-    PrintLineSeperator();
-    Serial.print("Data received ");
-    Serial.println(dataReceived);
-    PrintLineSeperator();
-    newDataAvailable = false;
+  Serial.print("Data received ");
+  Serial.println(dataReceived);
+}
+
+void sendAction() {
+  radio.stopListening();
+  for (byte i = 0; i < NUM_BEATS; i++) {
+    if (i != BEAT_ID) {
+      radio.openWritingPipe(BEAT_ADDRESS[i]);
+      
+      radio.write(&dataToSend, BUF_SIZE);
+
+      Serial.print("send: ");
+      Serial.print(dataToSend);
+      Serial.print(" to Beat No: ");
+      Serial.println(i);
+    }
   }
+  radio.startListening();
 }
 
 //////////////
@@ -90,8 +108,8 @@ void setNewColor(unsigned long duration) {
   val = 255 * (1 - sum);
   col.b = constrain(val, 0, 255);
   startFadeLEDs(col, duration);
-  printColor(col);
-  Serial.println();
+  //printColor(col);
+  //Serial.println();
 }
 
 /////////////////
@@ -113,6 +131,9 @@ void readSensors() {
     if (valAdjusted < 0.1) valAdjusted = 0.0; // use a 10% threshold
     if (valAdjusted > 1.0) valAdjusted = 1.0;
     sensorValue[i] = valAdjusted;
+    //if(i == 0) {
+    //sensorValue[i] = 0.0;  
+    //}
   }
 }
 
@@ -121,8 +142,8 @@ void readSensors() {
 ////////////////////////
 
 void stopDeflateBubble(byte id) {
-  Serial.print("stop deflate ");
-  Serial.println(id);
+  PrintBubbleId(id);
+  Serial.println("stop deflate");
   digitalWrite(PIN_VALVE[id], LOW);
   bubbleState[id] = BUBBLE_EMPTY;
   bubbleFillLevelCurrent[id] = 0;
@@ -137,9 +158,9 @@ void deflateBubble(byte id) {
   bubbleState[id] = BUBBLE_DEFLATING;
   bubbleStateTimestamp[id] = millis();
 
-  Serial.print("deflate bubble ");
-  Serial.println(id);
-  setNewColor(2000);
+  PrintBubbleId(id);
+  Serial.println("deflate");
+  setNewColor(T_DEFLATE_DONE_MS);
 }
 
 void deflateAll() {
@@ -177,8 +198,9 @@ void setInflate(byte id, float val) {
   bubbleFillLevelStart[id] = bubbleFillLevelCurrent[id];
   bubbleFillLevelGoal[id] = val;
   
-  Serial.print("fill bubble ");
-  Serial.print(id);
+  PrintBubbleId(id);
+  Serial.print("fill from ");
+  Serial.print(bubbleFillLevelStart[id]);
   Serial.print(" to val ");
   Serial.print(val);
   Serial.print("(for ");
