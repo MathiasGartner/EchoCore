@@ -54,7 +54,7 @@ const byte BEAT_ADDRESS[NUM_BEATS][5] = { "BEAT1", "BEAT2", "BEAT3" };
 #define NUM_LEDS 32
 #define PIN_LED_DATA 9
 #define LED_BRIGHTNESS 100
-#define LED_DEFAULT_RGB CRGB::Blue
+#define LED_DEFAULT_RGB CRGB::White
 
 #define NUM_BUBBLES 4
 #define PIN_PUMP_1 A2
@@ -176,8 +176,8 @@ const byte sensorBubbleMapping[NUM_BEATS][NUM_SENSORS][2] = {
 
 
 const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
-    { 6500, 4200, 4000, 4000 }, //0, 1 okay, 2, 3 tbd
-    { 4000, 4000, 4000, 4000 },
+    { 6500, 4200, 4000, 4000 }, //0 okay, 1 okay, 2, 3 tbd
+    { 4000, 4000, 6000, 4000 }, //0 & 1 gleiche kammern, 2 okay, 3 ohne funktion
     { 3000, 3000, 3000, 3000 }
   };
   

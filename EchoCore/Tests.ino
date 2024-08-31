@@ -9,7 +9,7 @@ unsigned long testFill_prevMillisLastAction = 0;
 
 void testFill2() {
   for (int i = 0; i < NUM_BUBBLES; i++) {
-    if (i != 2) continue;
+    //if (i != 0) continue;
     PrintBubbleId(i);
     Serial.println("inflate");
     digitalWrite(PIN_PUMP[i], HIGH);
