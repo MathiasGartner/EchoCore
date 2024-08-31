@@ -15,6 +15,9 @@ void PrintBubbleId(int id) {
   Serial.print("#");
   Serial.print(id);
   Serial.print(": ");
+  for (int i = 0; i < 4 * (id + 1); i++) {
+    Serial.print("\t");
+  }
 }
 
 ///////////////////////
@@ -85,11 +88,11 @@ void printColor(const CRGB& c) {
   Serial.print("]");
 }
 
-void setNewColor() {
-  setNewColor(6000);
+void setNewColorFill() {
+  setNewColorFill(6000);
 }
 
-void setNewColor(unsigned long duration) {
+void setNewColorFill(unsigned long duration) {
   float sum = 0.0;
   for (int i = 0; i < NUM_BUBBLES; i++) {
     if (bubbleState[i] == BUBBLE_DEFLATING || bubbleState[i] == BUBBLE_EMPTY) {
@@ -124,22 +127,80 @@ void selectSensor(uint8_t i) {
 }
 
 void readSensors() {
+  readSensors(false);
+}
+
+void readSensors(bool verbose) {
   for (int i = 0; i < NUM_SENSORS; i++) {
     selectSensor(CHNL_SENSOR[i]);
     unsigned long val = particleSensors[i].getIR();
-    float valAdjusted = (float(val) - sensorIdleValue[i]) / SENSOR_MAX_VAL;
+    float valAdjusted = (float(val) - sensorIdleValue[i]) / (SENSOR_MAX_VAL[BEAT_ID][i] - sensorIdleValue[i]);
     if (valAdjusted < 0.1) valAdjusted = 0.0; // use a 10% threshold
     if (valAdjusted > 1.0) valAdjusted = 1.0;
     sensorValue[i] = valAdjusted;
     //if(i == 0) {
     //sensorValue[i] = 0.0;  
     //}
+    if (verbose) {
+      Serial.print(i);
+      Serial.print(":");
+      Serial.print(val);
+      Serial.println();
+    }
   }
 }
 
 ////////////////////////
 ///  PUMPS & VALVES  ///
 ////////////////////////
+
+int getRandomBubbleToFill() {
+  //return 0;
+  int id = -1;
+  tmpBubbleList.clear();
+  for (byte i = 0; i < NUM_BUBBLES; i++) {
+    if ( bubbleState[i] == BUBBLE_EMPTY || 
+        (bubbleState[i] == BUBBLE_WAIT && bubbleFillLevelGoal[i] < 1.0)) {
+      tmpBubbleList.push_back(i);
+    }
+  }
+  if (tmpBubbleList.size() > 0) {
+    byte r = random(0, tmpBubbleList.size());
+    id = tmpBubbleList[r];
+  }
+  else {
+    //Serial.println("no bubble to fill available.");
+  }
+  return id;
+}
+
+int getRandomBubbleToDeflate(bool onlyFullBubbles) {
+  //return 0;
+  int id = -1;
+  tmpBubbleList.clear();
+  for (byte i = 0; i < NUM_BUBBLES; i++) {
+    if (onlyFullBubbles) {  
+      if (bubbleState[i] == BUBBLE_WAIT || 
+          bubbleFillLevelCurrent[i] == 1.0) {
+        tmpBubbleList.push_back(i);
+      }
+    }
+    else {      
+      if (bubbleState[i] == BUBBLE_FILLING || 
+          bubbleState[i] == BUBBLE_WAIT) {
+        tmpBubbleList.push_back(i);
+      }
+    }
+  }
+  if (tmpBubbleList.size() > 0) {
+    byte r = random(0, tmpBubbleList.size());
+    id = tmpBubbleList[r];
+  }
+  else {
+    Serial.println("no bubble to deflate available.");
+  }
+  return id;
+}
 
 void stopDeflateBubble(byte id) {
   PrintBubbleId(id);
@@ -160,7 +221,7 @@ void deflateBubble(byte id) {
 
   PrintBubbleId(id);
   Serial.println("deflate");
-  setNewColor(T_DEFLATE_DONE_MS);
+  setNewColorFill(T_DEFLATE_DONE_MS);
 }
 
 void deflateAll() {
@@ -199,6 +260,11 @@ void setInflate(byte id, float val) {
   bubbleFillLevelGoal[id] = val;
   
   PrintBubbleId(id);
+  Serial.print("fill ");
+  Serial.print(bubbleFillLevelStart[id]);
+  Serial.print("->");
+  Serial.print(val);
+  /*
   Serial.print("fill from ");
   Serial.print(bubbleFillLevelStart[id]);
   Serial.print(" to val ");
@@ -209,5 +275,6 @@ void setInflate(byte id, float val) {
   Serial.print(bubbleFillUntil[id]);
   Serial.print(" / ");
   Serial.print(bubbleStateTimestamp[id]);  
+  */
   Serial.println();
 }

@@ -54,7 +54,7 @@ void loop() {
         digitalWrite(PIN_VALVE[i], LOW);        
       }
     }
-    delay(1000);
+    delay(200);
   }
   pump = !pump;
   if (!pump)
