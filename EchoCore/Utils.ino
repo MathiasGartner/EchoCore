@@ -26,6 +26,7 @@ void PrintBubbleId(int id) {
 
 void recvData() {
   if (radio.available()) {
+    Serial.println("radio available");
     radio.read(&dataReceived, BUF_SIZE);
     newDataAvailable = true;
   }
@@ -131,11 +132,27 @@ void selectSensor(uint8_t i) {
   Wire.endTransmission();  
 }
 
+void calibrateSensors() {  
+  if (!useSensors) return;
+  for (int i = 0; i < NUM_SENSORS; i++) {
+    selectSensor(CHNL_SENSOR[i]);
+    for (byte v = 0; v < N_SENSOR_IDLE_AVG; v++) {
+      sensorIdleValue[i] += particleSensors[i].getIR();
+    }
+    sensorIdleValue[i] /= N_SENSOR_IDLE_AVG;
+    Serial.print("Sensor ");
+    Serial.print(i);
+    Serial.print(" idle value is ");
+    Serial.println(sensorIdleValue[i]);
+  }
+}
+
 void readSensors() {
   readSensors(false);
 }
 
 void readSensors(bool verbose) {
+  if (!useSensors) return;
   for (int i = 0; i < NUM_SENSORS; i++) {
     selectSensor(CHNL_SENSOR[i]);
     unsigned long val = particleSensors[i].getIR();
@@ -226,7 +243,7 @@ void deflateBubble(byte id) {
 
   PrintBubbleId(id);
   Serial.println("deflate");
-  if (!inIdleMode) {
+  if (!inIdleMode && !inAction) {
     setNewColorFill(bubbleDeflateTime[BEAT_ID][id]);
   }
 }

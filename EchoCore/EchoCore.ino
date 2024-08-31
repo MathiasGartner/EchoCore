@@ -1,5 +1,6 @@
 /*
 Libraries
+https://github.com/janelia-arduino/Array
 https://github.com/FastLED/FastLED
 https://github.com/sparkfun/SparkFun_MAX3010x_Sensor_Library
 https://nrf24.github.io/RF24/
@@ -17,18 +18,22 @@ byte BEAT_ID; //This device ID is read from EEPROM adress 0
 
 const byte NUM_BEATS = 3;
 const byte BUF_SIZE = 32;
-unsigned long T_SEND_MS = 4000;
-unsigned long T_RECV_MS = 500;
+
+unsigned long T_SEND_MS = 500;
+unsigned long T_RECV_MS = 200;
+unsigned long T_ACTION_MS = 5 * 1000;
 
 unsigned long T_READ_SENSOR_MS = 100;
-unsigned long T_FILL_ON_SENSOR_DATA_MS = 100;
+unsigned long T_FILL_ON_SENSOR_DATA_MS = 50;
 
-unsigned long T_IDLE_MODE_MS = 5000;
+unsigned long T_IDLE_MODE_MS = 10 * 1000;
 unsigned long T_IDLE_BLINK_MS = 2000;
 unsigned long T_IDLE_FILL_MIN_MS = 1000;
 unsigned long T_IDLE_FILL_MAX_MS = 5000;
 unsigned long T_IDLE_DEFLATE_MIN_MS = 2000;
 unsigned long T_IDLE_DEFLATE_MAX_MS = 5000;
+
+unsigned long T_CALIBRATE_SENSORS_MS = 1 * 60 * 1000;
 
 unsigned long T_WAIT_MS = 20;
 
@@ -48,9 +53,8 @@ const byte BEAT_ADDRESS[NUM_BEATS][5] = { "BEAT1", "BEAT2", "BEAT3" };
 
 #define NUM_LEDS 32
 #define PIN_LED_DATA 9
-#define LED_BRIGHTNESS 255
+#define LED_BRIGHTNESS 100
 #define LED_DEFAULT_RGB CRGB::Blue
-#define NUM_LED_IDLE_RGB 5
 
 #define NUM_BUBBLES 4
 #define PIN_PUMP_1 A2
@@ -88,8 +92,10 @@ CRGB leds[NUM_LEDS];
 RF24 radio(PIN_CE, PIN_CSN);
 
 unsigned long currentMillis = 0;
+unsigned long initialMillis = 0;
 unsigned long prevMillisSend = 0;
 unsigned long prevMillisRecv = 0;
+unsigned long prevMillisAction = 0;
 unsigned long prevMillisSensor = 0;
 unsigned long prevMillisFillOnSensorData = 0;
 unsigned long prevMillisPumpUpdate = 0;
@@ -99,6 +105,7 @@ unsigned long prevMillisLED = 0;
 unsigned long prevMillisIdleBlink = 0;
 unsigned long prevMillisIdleFill = 0;
 unsigned long prevMillisIdleDeflate = 0;
+unsigned long prevMillisCalibrateSensors = 0;
 
 unsigned long nextIdleFillMS = 0;
 unsigned long nextIdleDeflateMS = 0;
@@ -107,20 +114,35 @@ char dataToSend[BUF_SIZE] = "";
 char dataReceived[BUF_SIZE] = "";
 bool newDataAvailable = false;
 
+bool useSensors = true;
 unsigned long lastSensorValueTimestamp = 0;
 
+#define NUM_LED_IDLE_RGB 3
 CRGB ledIdleRGBs[NUM_LED_IDLE_RGB] = {
   //0x0000FF,
   //0xAAAAFF,
   //0x7733BB,
   //0xAAAAFF
-  0x987284,
-  0x75B9FE,
-  0xD0D6B5,
-  0xF9B5AC,
-  0xEE76F4
+  //0x987284,
+  //0x75B9BE,
+  //0xD0D6B5,
+  //0xF9B5AC,
+  //0xEE7674,
+  0x8E4E8E,
+  0x00E5EE,
+  0xE32283
 };
 byte ledIdleRGBId = 0;
+
+#define NUM_LED_ACTION_RGB 2
+CRGB ledActionRGBs[NUM_LED_IDLE_RGB] = {
+  //0xFF0000,
+  //0x00FF00,
+  //0x0000FF
+  0x3434CC,
+  0xFFAABB
+};
+byte ledActionRGBId = 0;
 
 byte BUBBLE_EMPTY = 0;
 byte BUBBLE_DEFLATING = 1;
@@ -177,6 +199,9 @@ unsigned long ledTransitionDuration = 0;
 
 Array<byte, NUM_BUBBLES> tmpBubbleList;
 
+byte ACTION_SENDER = 0;
+byte ACTION_RECEIVER = 1;
+
 byte RUN_ECHOCORE = 0;
 byte RUN_FILL_TEST = 1;
 byte RUN_SENSOR_TEST = 2;
@@ -185,6 +210,11 @@ byte RUN_LED_TEST = 3;
 byte runMode = RUN_ECHOCORE;
 
 bool inIdleMode = true;
+
+const int ACTION_COUNTER_MAX = 9;
+int actionCounter = 0;
+bool inAction = false;
+
 
 void setup() {
   randomSeed(1234);
@@ -198,7 +228,7 @@ void setup() {
   Serial.begin(115200);
   Serial.println("\n");
   
-  BEAT_ID = EEPROM.read(0);
+  BEAT_ID = EEPROM.read(0);  
   PrintLineSeperator(2);
   Serial.print("This is BEAT ID: ");
   Serial.println(BEAT_ID);
@@ -226,6 +256,10 @@ void setup() {
   PrintLineSeperator();
   Serial.println("Initialize radio...");
   radio.begin();
+  //see https://forum.arduino.cc/t/nrf24l01-broken-or-im-just-bad/993788/3
+  radio.setDataRate(RF24_2MBPS); // Set the speed of the transmission to the quickest available
+  radio.setChannel(124); // Use a channel unlikely to be used by Wifi, Microwave ovens etc
+  radio.setPALevel(RF24_PA_MAX); // Set radio Tx power to MAX 
   radio.openReadingPipe(1, BEAT_ADDRESS[BEAT_ID]);  
   radio.startListening();
   Serial.println("done");
@@ -244,15 +278,8 @@ void setup() {
     particleSensors[i].setup();
     particleSensors[i].setPulseAmplitudeRed(SENSOR_LED_RED);
     particleSensors[i].setPulseAmplitudeGreen(SENSOR_LED_GREEN);
-    for (byte v = 0; v < N_SENSOR_IDLE_AVG; v++) {
-      sensorIdleValue[i] += particleSensors[i].getIR();
-    }
-    sensorIdleValue[i] /= N_SENSOR_IDLE_AVG;
-    Serial.print("Sensor ");
-    Serial.print(i);
-    Serial.print(" idle value is ");
-    Serial.println(sensorIdleValue[i]);
   }
+  calibrateSensors();
   Serial.println("done");
 
   PrintLineSeperator();
@@ -308,41 +335,65 @@ void loop() {
 
 void run() {
   currentMillis = millis();
+  initialMillis = currentMillis;
 
   //INFO: setup takes a few seconds, so we always start in idle mode
-  inIdleMode = (currentMillis - lastSensorValueTimestamp) > T_IDLE_MODE_MS;
+  inIdleMode = !inAction && 
+               ((currentMillis - lastSensorValueTimestamp) > T_IDLE_MODE_MS);
+
+  if (actionCounter == ACTION_COUNTER_MAX) {
+    actionCounter = 0;
+    inAction = false;
+  }
+
+  //perform actions
+  if (currentMillis - prevMillisAction >= T_ACTION_MS && inAction) {
+    Serial.print("Perform action no: ");
+    Serial.println(actionCounter);
+    startFadeLEDs(ledActionRGBs[ledActionRGBId], T_ACTION_MS);
+    ledActionRGBId = (ledActionRGBId + 1) % NUM_LED_ACTION_RGB;
+    if (actionCounter % 2 == BEAT_ID) {
+      deflateAll();
+    }
+    else {
+      for (byte i = 0; i < NUM_BUBBLES; i++) {
+        setInflate(i, 1.0);
+      }
+    }
+
+    currentMillis = millis();
+    prevMillisAction = currentMillis;
+    actionCounter++;
+  }
 
   // send activity to other devices
-  if (currentMillis - prevMillisSend >= T_SEND_MS && !inIdleMode && false) {
-    for (int i = 0; i < NUM_SENSORS; i++) {
-      if (sensorValue[i] > 0.0) {
-        for (byte b = 0; b < 2; b++) {
-          byte bubbleId = sensorBubbleMapping[BEAT_ID][i][b];
-          String msg = "" + bubbleId + (byte)sensorValue[i]*10;
-          Serial.print("send: ");
-          Serial.println(dataToSend);
-          msg.toCharArray(dataToSend, BUF_SIZE);
-          sendAction();
-        }
-      }
-    }    
-    prevMillisSend = millis();
+  if (currentMillis - prevMillisSend >= T_SEND_MS && !inIdleMode && !inAction) {
+    if (sensorValue[0] == 1.0 && sensorValue[1] == 1.0) {
+      char cmsg = 'A';
+      byte bmsg = cmsg;
+      Serial.print("msg:'");
+      Serial.print(bmsg);
+      Serial.println("'");
+      dataToSend[0] = cmsg;
+      sendAction();
+      ledActionRGBId = BEAT_ID;
+      inAction = true;
+    }
+    currentMillis = millis();
+    prevMillisSend = currentMillis;
   }
 
   // receive activity from other devices
-  if (currentMillis - prevMillisRecv >= T_RECV_MS && false) {
+  if (currentMillis - prevMillisRecv >= T_RECV_MS && !inAction && inIdleMode) {
     recvData();
     if (newDataAvailable) {
       showData();
-      if (inIdleMode) {
-        byte bubbleId = (byte)dataReceived[0];
-        float fillLevel = (float)dataReceived[1] / 10.0;
-        setInflate(bubbleId, fillLevel);
-        setNewColorFill(bubbleFillUntil[bubbleId] - millis());
-      }
+      ledActionRGBId = BEAT_ID;
+      inAction = true;
       newDataAvailable = false;
     }
-    prevMillisRecv = millis();
+    currentMillis = millis();
+    prevMillisRecv = currentMillis;
   }
 
   //do pump action
@@ -364,7 +415,8 @@ void run() {
         }
       }
     }
-    prevMillisPumpUpdate = millis();
+    currentMillis = millis();
+    prevMillisPumpUpdate = currentMillis;
   }
 
   //check if deflate has finished
@@ -376,22 +428,25 @@ void run() {
         }
       }
     }
-    prevMillisDeflateUpdate = millis();
+    currentMillis = millis();
+    prevMillisDeflateUpdate = currentMillis;
   }
 
   //check if deflate should be performed (for safety)
-  if (currentMillis - prevMillisDeflateSafety >= T_DEFLATE_SAFETY_MS) {
+  if (currentMillis - prevMillisDeflateSafety >= T_DEFLATE_SAFETY_MS && !inAction) {
     deflateAll();
-    prevMillisDeflateSafety = millis();
+    currentMillis = millis();
+    prevMillisDeflateSafety = currentMillis;
   }
 
   //read sensor values
   if (currentMillis - prevMillisSensor >= T_READ_SENSOR_MS) {
     readSensors();
-    prevMillisSensor = millis();
+    currentMillis = millis();
+    prevMillisSensor = currentMillis;
   }
 
-  //fill if sensor detected
+  //fill/deflate if sensor detected
   if (currentMillis - prevMillisFillOnSensorData >= T_FILL_ON_SENSOR_DATA_MS) {    
     for (int i = 0; i < NUM_SENSORS; i++) {
       if (sensorValue[i] > 0.0) {
@@ -414,7 +469,8 @@ void run() {
         //}
       }
     }
-    prevMillisFillOnSensorData = millis();
+    currentMillis = millis();
+    prevMillisFillOnSensorData = currentMillis;
   }
 
   //update LED colors
@@ -430,16 +486,23 @@ void run() {
       f = constrain(f, 0.0, 1.0);
       fadeLEDs(colorStart, colorEnd, f);
     }
-    prevMillisLED = millis();
+    currentMillis = millis();
+    prevMillisLED = currentMillis;
   }
 
-  //TODO: recalibration of Sensor idle values every few minutes
+  //recalibration of Sensor idle values
+  if (currentMillis - prevMillisCalibrateSensors >= T_CALIBRATE_SENSORS_MS && inIdleMode) {    
+    calibrateSensors();
+    currentMillis = millis();
+    prevMillisCalibrateSensors = currentMillis;
+  }
 
   //soft blink when idle
   if (currentMillis - prevMillisIdleBlink >= T_IDLE_BLINK_MS && inIdleMode) {    
     startFadeLEDs(ledIdleRGBs[ledIdleRGBId], T_IDLE_BLINK_MS);
     ledIdleRGBId = (ledIdleRGBId + 1) % NUM_LED_IDLE_RGB;
-    prevMillisIdleBlink = millis();
+    currentMillis = millis();
+    prevMillisIdleBlink = currentMillis;
   }
 
   //fill randomly while idle  
@@ -453,7 +516,8 @@ void run() {
       setInflate(r, f);
     }
     nextIdleFillMS = random(T_IDLE_FILL_MIN_MS, T_IDLE_FILL_MAX_MS);
-    prevMillisIdleFill = millis();
+    currentMillis = millis();
+    prevMillisIdleFill = currentMillis;
   }
 
   //deflate randomly while idle  
@@ -463,11 +527,12 @@ void run() {
       deflateBubble(r);
     }
     nextIdleDeflateMS = random(T_IDLE_DEFLATE_MIN_MS, T_IDLE_DEFLATE_MAX_MS);
-    prevMillisIdleDeflate = millis();
+    currentMillis = millis();
+    prevMillisIdleDeflate = currentMillis;
   }
 
-  unsigned long t = millis() - currentMillis;
-  if (t > 5 && false) {
+  unsigned long t = millis() - initialMillis;
+  if (t > 15 && false) {
     PrintLineSeperator();
     Serial.print("Time taken: ");
     Serial.println(t);
@@ -475,126 +540,7 @@ void run() {
     Serial.println();
   }
   
-  if (t < T_WAIT_MS) {
-    delay(T_WAIT_MS - t);
-  }
+  //if (t < T_WAIT_MS) {
+  //  delay(T_WAIT_MS - t);
+  //}
 }
-
-///////////////
-///  TESTS  ///
-///////////////
-
-byte testFill_bubbleId = 0;
-float testFill_val = 0.1;
-unsigned long testFill_prevMillisLastAction = 0;
-
-void testFill2() {
-  for (int i = 0; i < NUM_BUBBLES; i++) {
-    //if (i != 3) continue;
-    PrintBubbleId(i);
-    Serial.println("inflate");
-    digitalWrite(PIN_PUMP[i], HIGH);
-    delay(bubbleFillTime[BEAT_ID][i]);
-    digitalWrite(PIN_PUMP[i], LOW);
-    deflateBubble(i);
-    delay(bubbleDeflateTime[BEAT_ID][i]);
-    stopDeflateBubble(i);
-    Serial.println("done");
-  }
-  Serial.println("all done");
-  //delay(10000);
-}
-
-void testFill() {
-  currentMillis = millis();
-  
-  //set fill goal
-  if (currentMillis - testFill_prevMillisLastAction >= 20000) {
-    testFill_val = 1.0;
-    setInflate(testFill_bubbleId, testFill_val);
-    testFill_bubbleId = (testFill_bubbleId + 1) % NUM_BUBBLES;
-    testFill_val += 0.1;
-    if (testFill_val > 1.0) {
-      testFill_val = 0.1;
-    }
-    testFill_prevMillisLastAction = millis();
-  }
-  
-  //do pump action
-  for (int i = 0; i < NUM_BUBBLES; i++) {
-    if (bubbleState[i] == BUBBLE_FILLING) {
-      if (currentMillis < bubbleFillUntil[i]) {
-        digitalWrite(PIN_PUMP[i], HIGH);
-      }
-      else{
-        digitalWrite(PIN_PUMP[i], LOW);
-        bubbleState[i] = BUBBLE_WAIT;
-        bubbleStateTimestamp[i] = millis();
-        Serial.print("stop ");
-        Serial.println(i);
-      }
-    }
-  }
-
-  //check if deflate should be performed (for safety)
-  if (currentMillis - prevMillisDeflateSafety >= 20000) {
-    deflateAll();
-    prevMillisDeflateSafety = millis() - 10000;
-  }
-
-  //check if deflate has finished
-  for (int i = 0; i < NUM_BUBBLES; i++) {
-    if (bubbleState[i] == BUBBLE_DEFLATING) {
-      if (currentMillis - bubbleStateTimestamp[i] >= bubbleDeflateTime[BEAT_ID][i]) {
-        stopDeflateBubble(i);
-      }
-    }
-  }
-
-  delay(350);
-}
-
-void testSensor() {
-  currentMillis = millis();
-  
-  //read sensor values
-  if (currentMillis - prevMillisSensor >= T_READ_SENSOR_MS) {
-    readSensors(true);
-    for (int i = 0; i < NUM_SENSORS; i++) {
-      Serial.print(sensorValue[i]);
-      Serial.print("/");
-    }
-    Serial.println();
-    prevMillisSensor = millis();
-  }
-
-  delay(350);
-}
-
-void testLED() {
-  currentMillis = millis();
-  
-  if (!inLEDTransition) {
-    startFadeLEDs(CRGB(random8(), random8(), random8()), 3000);
-  }
-
-  //update LED colors
-  if (currentMillis - prevMillisLED >= T_LED_UPDATE_MS) {
-    if (currentMillis > ledTransitionEnd) {
-      inLEDTransition = false;
-    }
-    if (inLEDTransition && ledTransitionDuration > 0) {
-      float f = float(currentMillis - ledTransitionStart) / ledTransitionDuration;
-      fadeLEDs(colorStart, colorEnd, f);
-      Serial.print(leds[0].r);
-      Serial.print("\t");
-      Serial.print(leds[0].g);
-      Serial.print("\t");
-      Serial.print(leds[0].b);
-      Serial.print("\t");
-      Serial.println(f);
-    }
-    prevMillisLED = millis();
-  }
-}
-
