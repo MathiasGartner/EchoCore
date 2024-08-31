@@ -23,7 +23,7 @@ unsigned long T_RECV_MS = 500;
 unsigned long T_READ_SENSOR_MS = 100;
 unsigned long T_FILL_ON_SENSOR_DATA_MS = 100;
 
-unsigned long T_IDLE_MODE_MS = 2000;
+unsigned long T_IDLE_MODE_MS = 5000;
 unsigned long T_IDLE_BLINK_MS = 2000;
 unsigned long T_IDLE_FILL_MIN_MS = 1000;
 unsigned long T_IDLE_FILL_MAX_MS = 5000;
@@ -35,7 +35,6 @@ unsigned long T_WAIT_MS = 20;
 unsigned long T_PUMP_UPDATE_MS = 50;
 unsigned long T_DEFLATE_UPDATE_MS = 50;
 unsigned long T_DEFLATE_SAFETY_MS = 5 * 60 * 1000;
-unsigned long T_DEFLATE_DONE_MS = 3 * 1000;
 
 unsigned long T_LED_UPDATE_MS = 20;
 
@@ -49,9 +48,9 @@ const byte BEAT_ADDRESS[NUM_BEATS][5] = { "BEAT1", "BEAT2", "BEAT3" };
 
 #define NUM_LEDS 32
 #define PIN_LED_DATA 9
-#define LED_BRIGHTNESS 100
+#define LED_BRIGHTNESS 255
 #define LED_DEFAULT_RGB CRGB::Blue
-#define NUM_LED_IDLE_RGB 4
+#define NUM_LED_IDLE_RGB 5
 
 #define NUM_BUBBLES 4
 #define PIN_PUMP_1 A2
@@ -69,8 +68,8 @@ const byte PIN_VALVE[NUM_BUBBLES] = { PIN_VALVE_1, PIN_VALVE_2, PIN_VALVE_3, PIN
 #define NUM_SENSORS 2
 #define CHNL_SENSOR_1 0
 #define CHNL_SENSOR_2 1
-#define SENSOR_LED_RED 0
-#define SENSOR_LED_GREEN 5
+#define SENSOR_LED_RED 5
+#define SENSOR_LED_GREEN 0
 
 const byte CHNL_SENSOR[NUM_SENSORS] = { CHNL_SENSOR_1, CHNL_SENSOR_2 };
 MAX30105 particleSensors[NUM_SENSORS];
@@ -104,7 +103,6 @@ unsigned long prevMillisIdleDeflate = 0;
 unsigned long nextIdleFillMS = 0;
 unsigned long nextIdleDeflateMS = 0;
 
-int currentData = 0;
 char dataToSend[BUF_SIZE] = "";
 char dataReceived[BUF_SIZE] = "";
 bool newDataAvailable = false;
@@ -116,10 +114,11 @@ CRGB ledIdleRGBs[NUM_LED_IDLE_RGB] = {
   //0xAAAAFF,
   //0x7733BB,
   //0xAAAAFF
-  0xFF0000,
-  0x00FF00,
-  0xFF0000,
-  0x00FF00
+  0x987284,
+  0x75B9FE,
+  0xD0D6B5,
+  0xF9B5AC,
+  0xEE76F4
 };
 byte ledIdleRGBId = 0;
 
@@ -151,7 +150,7 @@ const byte sensorBubbleMapping[NUM_BEATS][NUM_SENSORS][2] = {
 
 
 const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
-    { 4000, 3000, 5000, 4000 },
+    { 7000, 5000, 5000, 4000 },
     //{ 5000, 5000, 5000, 5000 },
     { 10000, 4000, 4000, 8000 },
     { 3000, 3000, 3000, 3000 }
@@ -160,6 +159,13 @@ const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
     //{ 1000, 1000, 1000, 1000 }
     //{ 3000, 3000, 3000, 3000 }
   };
+  
+const unsigned long bubbleDeflateTime[NUM_BEATS][NUM_BUBBLES] = {
+    { 3000, 3000, 3000, 3000 },
+    { 3000, 3000, 3000, 3000 },
+    { 3000, 3000, 3000, 3000 }
+  };
+unsigned long bubbleDeflateTimeMax = 0;
 
 bool inLEDTransition = false;
 CRGB colorStart = LED_DEFAULT_RGB;
@@ -182,6 +188,12 @@ bool inIdleMode = true;
 
 void setup() {
   randomSeed(1234);
+
+  for (int i = 0; i < NUM_BUBBLES; i++) {
+    if (bubbleDeflateTimeMax < bubbleDeflateTime[BEAT_ID][i]) {
+      bubbleDeflateTimeMax = bubbleDeflateTime[BEAT_ID][i];
+    }
+  }
   
   Serial.begin(115200);
   Serial.println("\n");
@@ -252,11 +264,11 @@ void setup() {
     digitalWrite(PIN_VALVE[i], LOW);
   }
   deflateAll();
-  delay(T_DEFLATE_DONE_MS);
+  delay(bubbleDeflateTimeMax);
   //delay(1000);
   for (int i = 0; i < NUM_BUBBLES; i++) {
     //deflateBubble(i);
-    //delay(T_DEFLATE_DONE_MS);
+    //delay(bubbleDeflateTime[BEAT_ID][i]);
     stopDeflateBubble(i);
     //delay(1000);
   }
@@ -359,7 +371,7 @@ void run() {
   if (currentMillis - prevMillisDeflateUpdate >= T_DEFLATE_UPDATE_MS) {
     for (int i = 0; i < NUM_BUBBLES; i++) {
       if (bubbleState[i] == BUBBLE_DEFLATING) {
-        if (currentMillis - bubbleStateTimestamp[i] >= T_DEFLATE_DONE_MS) {
+        if (currentMillis - bubbleStateTimestamp[i] >= bubbleDeflateTime[BEAT_ID][i]) {
           stopDeflateBubble(i);
         }
       }
@@ -485,7 +497,7 @@ void testFill2() {
     delay(bubbleFillTime[BEAT_ID][i]);
     digitalWrite(PIN_PUMP[i], LOW);
     deflateBubble(i);
-    delay(T_DEFLATE_DONE_MS);
+    delay(bubbleDeflateTime[BEAT_ID][i]);
     stopDeflateBubble(i);
     Serial.println("done");
   }
@@ -533,7 +545,7 @@ void testFill() {
   //check if deflate has finished
   for (int i = 0; i < NUM_BUBBLES; i++) {
     if (bubbleState[i] == BUBBLE_DEFLATING) {
-      if (currentMillis - bubbleStateTimestamp[i] >= T_DEFLATE_DONE_MS) {
+      if (currentMillis - bubbleStateTimestamp[i] >= bubbleDeflateTime[BEAT_ID][i]) {
         stopDeflateBubble(i);
       }
     }

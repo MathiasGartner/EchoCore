@@ -67,6 +67,7 @@ void fadeLEDs(const CRGB& start, const CRGB& end, float f) {
   }
   colorCurrent = cur;
   FastLED.show();
+  //printColor(colorCurrent);
 }
 
 void startFadeLEDs(const CRGB& end, unsigned long duration) {
@@ -76,6 +77,9 @@ void startFadeLEDs(const CRGB& end, unsigned long duration) {
   ledTransitionStart = millis();
   ledTransitionEnd = ledTransitionStart + duration;
   ledTransitionDuration = duration;
+  //printColor(colorStart);  
+  //printColor(colorEnd);
+  //Serial.println();
 }
 
 void printColor(const CRGB& c) {  
@@ -93,6 +97,7 @@ void setNewColorFill() {
 }
 
 void setNewColorFill(unsigned long duration) {
+  //Serial.println("setNewColorFill");
   float sum = 0.0;
   for (int i = 0; i < NUM_BUBBLES; i++) {
     if (bubbleState[i] == BUBBLE_DEFLATING || bubbleState[i] == BUBBLE_EMPTY) {
@@ -179,7 +184,7 @@ int getRandomBubbleToDeflate(bool onlyFullBubbles) {
   int id = -1;
   tmpBubbleList.clear();
   for (byte i = 0; i < NUM_BUBBLES; i++) {
-    if (onlyFullBubbles) {  
+    if (onlyFullBubbles && bubbleState[i] != BUBBLE_DEFLATING) {  
       if (bubbleState[i] == BUBBLE_WAIT || 
           bubbleFillLevelCurrent[i] == 1.0) {
         tmpBubbleList.push_back(i);
@@ -197,7 +202,7 @@ int getRandomBubbleToDeflate(bool onlyFullBubbles) {
     id = tmpBubbleList[r];
   }
   else {
-    Serial.println("no bubble to deflate available.");
+    //Serial.println("no bubble to deflate available.");
   }
   return id;
 }
@@ -221,7 +226,9 @@ void deflateBubble(byte id) {
 
   PrintBubbleId(id);
   Serial.println("deflate");
-  setNewColorFill(T_DEFLATE_DONE_MS);
+  if (!inIdleMode) {
+    setNewColorFill(bubbleDeflateTime[BEAT_ID][id]);
+  }
 }
 
 void deflateAll() {
