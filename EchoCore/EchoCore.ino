@@ -27,7 +27,7 @@ unsigned long T_READ_SENSOR_MS = 100;
 unsigned long T_FILL_ON_SENSOR_DATA_MS = 50;
 
 unsigned long T_IDLE_MODE_MS = 10 * 1000;
-unsigned long T_IDLE_BLINK_MS = 2000;
+unsigned long T_IDLE_BLINK_MS = 4000;
 unsigned long T_IDLE_FILL_MIN_MS = 1000;
 unsigned long T_IDLE_FILL_MAX_MS = 5000;
 unsigned long T_IDLE_DEFLATE_MIN_MS = 2000;
@@ -128,7 +128,8 @@ CRGB ledIdleRGBs[NUM_LED_IDLE_RGB] = {
   //0xD0D6B5,
   //0xF9B5AC,
   //0xEE7674,
-  0x8E4E8E,
+  //0xEED202,
+  0x2510F0,
   0x00E5EE,
   0xE32283
 };
@@ -139,10 +140,13 @@ CRGB ledActionRGBs[NUM_LED_IDLE_RGB] = {
   //0xFF0000,
   //0x00FF00,
   //0x0000FF
-  0x3434CC,
-  0xFFAABB
+  0x3434FF,
+  0xDD99AA
 };
 byte ledActionRGBId = 0;
+
+CRGB LED_COLOR_EMPTY = 0x1223FF;
+CRGB LED_COLOR_FULL = 0xFF2343;
 
 byte BUBBLE_EMPTY = 0;
 byte BUBBLE_DEFLATING = 1;
@@ -172,14 +176,9 @@ const byte sensorBubbleMapping[NUM_BEATS][NUM_SENSORS][2] = {
 
 
 const unsigned long bubbleFillTime[NUM_BEATS][NUM_BUBBLES] = {
-    { 7000, 5000, 5000, 4000 },
-    //{ 5000, 5000, 5000, 5000 },
-    { 10000, 4000, 4000, 8000 },
+    { 6500, 4200, 4000, 4000 }, //0, 1 okay, 2, 3 tbd
+    { 4000, 4000, 4000, 4000 },
     { 3000, 3000, 3000, 3000 }
-    //{ 6000, 6000, 6000, 6000 }, 
-    //{ 6000, 6000, 6000, 6000 },
-    //{ 1000, 1000, 1000, 1000 }
-    //{ 3000, 3000, 3000, 3000 }
   };
   
 const unsigned long bubbleDeflateTime[NUM_BEATS][NUM_BUBBLES] = {
@@ -499,8 +498,10 @@ void run() {
 
   //soft blink when idle
   if (currentMillis - prevMillisIdleBlink >= T_IDLE_BLINK_MS && inIdleMode) {    
-    startFadeLEDs(ledIdleRGBs[ledIdleRGBId], T_IDLE_BLINK_MS);
-    ledIdleRGBId = (ledIdleRGBId + 1) % NUM_LED_IDLE_RGB;
+    startFadeLEDs(ledIdleRGBs[ledIdleRGBId], T_IDLE_BLINK_MS - 200);
+    byte d = 1;
+    d = random(1, NUM_LED_IDLE_RGB); 
+    ledIdleRGBId = (ledIdleRGBId + d) % NUM_LED_IDLE_RGB;    
     currentMillis = millis();
     prevMillisIdleBlink = currentMillis;
   }

@@ -58,11 +58,18 @@ void sendAction() {
 ///  LEDS  ///
 //////////////
 
+CRGB interpolateRGB(const CRGB& start, const CRGB& end, float f) {
+  CRGB c;
+  c.r = int(start.r + (end.r - start.r) * f);
+  c.g = int(start.g + (end.g - start.g) * f);
+  c.b = int(start.b + (end.b - start.b) * f);
+  return c;
+}
+
 void fadeLEDs(const CRGB& start, const CRGB& end, float f) {
-  CRGB cur;
-  cur.r = int(start.r + (end.r - start.r) * f);
-  cur.g = int(start.g + (end.g - start.g) * f);
-  cur.b = int(start.b + (end.b - start.b) * f);
+  //f = 1.0;
+  f = (1.0 - cos(f * PI)) / 2.0;
+  CRGB cur = interpolateRGB(start, end, f);
   for (int i = 0; i < NUM_LEDS; i++) {
     leds[i] = cur;
   }
@@ -109,13 +116,9 @@ void setNewColorFill(unsigned long duration) {
     }
   }
   sum /= NUM_BUBBLES;
-  CRGB col;
-  uint8_t val;
-  val = 255 * sum;
-  col.r = constrain(val, 0, 255);
-  col.g = random8() * 0;
-  val = 255 * (1 - sum);
-  col.b = constrain(val, 0, 255);
+  if (sum > 1.0) sum = 1.0;
+  if (sum < 0.0) sum = 0.0;  
+  CRGB col = interpolateRGB(LED_COLOR_EMPTY, LED_COLOR_FULL, sum);
   startFadeLEDs(col, duration);
   //printColor(col);
   //Serial.println();
