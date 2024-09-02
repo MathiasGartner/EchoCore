@@ -45,10 +45,10 @@ void sendAction() {
       
       radio.write(&dataToSend, BUF_SIZE);
 
-      Serial.print("send: ");
-      Serial.print(dataToSend);
-      Serial.print(" to Beat No: ");
-      Serial.println(i);
+      //Serial.print("send: ");
+      //Serial.print(dataToSend);
+      //Serial.print(" to Beat No: ");
+      //Serial.println(i);
     }
   }
   radio.startListening();
