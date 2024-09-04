@@ -26,12 +26,12 @@ unsigned long T_ACTION_MS = 5 * 1000;
 unsigned long T_READ_SENSOR_MS = 100;
 unsigned long T_FILL_ON_SENSOR_DATA_MS = 50;
 
-unsigned long T_IDLE_MODE_MS = 60 * 1000;
+unsigned long T_IDLE_MODE_MS = 30 * 1000;
 unsigned long T_IDLE_BLINK_MS = 6000;
-unsigned long T_IDLE_FILL_MIN_MS = 5000;
-unsigned long T_IDLE_FILL_MAX_MS = 15000;
-unsigned long T_IDLE_DEFLATE_MIN_MS = 5000;
-unsigned long T_IDLE_DEFLATE_MAX_MS = 20000;
+unsigned long T_IDLE_FILL_MIN_MS = 3000;
+unsigned long T_IDLE_FILL_MAX_MS = 10000;
+unsigned long T_IDLE_DEFLATE_MIN_MS = 3000;
+unsigned long T_IDLE_DEFLATE_MAX_MS = 12000;
 unsigned long T_SINGLE_FILL_MIN_MS = 1000;
 unsigned long T_SINGLE_FILL_MAX_MS = 4000;
 unsigned long T_SINGLE_DEFLATE_MIN_MS = 1000;
@@ -58,7 +58,7 @@ const byte BEAT_ADDRESS[NUM_BEATS][5] = { "BEAT1", "BEAT2", "BEAT3" };
 
 #define NUM_LEDS 32
 #define PIN_LED_DATA 9
-#define LED_BRIGHTNESS_IDLE 50
+#define LED_BRIGHTNESS_IDLE 70
 #define LED_BRIGHTNESS 150
 #define LED_DEFAULT_RGB CRGB::White
 
@@ -372,7 +372,7 @@ void run() {
   }
 
   //perform actions
-  if (currentMillis - prevMillisAction >= T_ACTION_MS && inAction) {
+  if (currentMillis - prevMillisAction >= T_ACTION_MS && inAction && false) {
     Serial.print("Perform action no: ");
     Serial.println(actionCounter);
     startFadeLEDs(ledActionRGBs[ledActionRGBSetId][ledActionRGBId], T_ACTION_MS);
@@ -560,7 +560,7 @@ void run() {
   if (currentMillis - prevMillisIdleFill >= nextIdleFillMS && (inIdleMode || inSingleMode)) {    
     int r = getRandomBubbleToFill();
     if (r != -1) {
-      float f = float(random(3, inIdleMode ? 10 : 15)) / 10.0;
+      float f = float(random(3, inIdleMode ? 12 : 20)) / 10.0;
       if (f > 1.0) {
         f = 1.0;
       }
